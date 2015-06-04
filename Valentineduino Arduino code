@@ -1,0 +1,508 @@
+#include <DallasTemperature.h>
+#include <Time.h>
+#include <SPI.h>
+
+
+const int  cs=8; //chip select for the rtc
+const int rfPowerPin = 2; 
+const int ledPin = 13;
+const int openEventPin = 12; 
+#include <NewSoftSerial.h>
+NewSoftSerial nss(4,5); 
+
+//Arduino compiler version 0023 was used on this project, alot of new versions are coming these days and not every library works the same way as before. If you run into problems, revert to v. 0023
+//Regards Vegard Paulsen    www.vegardpaulsen.wordpress.com
+
+char clientId[] = "clientId=03&"; //12 char
+char tempSensorId[] = "sensorId=03&" ; //12 char
+char lightSensorId[] = "sensorId=40&" ; //12 char
+char dataTypeFloat[] = "dataType=float&data=" ; //20 char
+char dataTypeInt[] = "dataType=int&data=" ; //18 char
+char dataTypeChar[] = "dataType=char&data=" ; //19 char
+char checkData[] = "&check" ; 
+int counter = 0 ; 
+unsigned long previousMillis = 0;        // will store last millis event time 
+unsigned long sensorpreviousMillis = 0;        // will store last millis event time 
+unsigned long fiveMinuteInterval = 300000;           // interval at which to use event time (milliseconds)
+unsigned long postDaysInterval = 7200000 ; //seconds in a day 86400000
+float temperature = 0 ; 
+int openEvent = 1; 
+int lightValue = 0; 
+int TimeDate[7]; 
+
+
+DallasTemperature tempSensor; // You may instantiate as many copies as you require.
+
+unsigned long theDateWeGotTogether = 1194242400   ;  //in unixtime
+unsigned long days ; 
+int weeks ; 
+
+const int MAX_CMDLEN = 70;
+char cmdBuffer[MAX_CMDLEN+1];
+int cmdLen;
+int openState = 0; 
+unsigned long unixTime; 
+
+
+void setup() {                
+  Serial.begin(9600); 
+  nss.begin(9600); 
+  tempSensor.begin(7); // Data wire is plugged into port 10 on the Arduino
+  ClearLcd();
+  RTC_init();
+  SetTimeLibraryFromRTC();
+  pinMode(ledPin, OUTPUT); 
+  pinMode(rfPowerPin, OUTPUT); 
+  pinMode(openEventPin, INPUT); 
+  digitalWrite(rfPowerPin, HIGH); 
+  CheckTemperature(); 
+  delay(3000); 
+  LoveYouLcd() ;
+  delay(100); 
+  sendEverything(); 
+
+  // adjustTime(1297641590); //used to try the code without knowing the right time. just paste in the unixtime you know 
+
+}
+
+void loop() 
+{   
+  days = ((now() - theDateWeGotTogether) / 86400); //magic nubmer 86400 is the number of seconds in a day 
+  unsigned long currentMillis = millis();   
+  ShowDaysReading();     
+  time_t t = now();
+ 
+  
+  if ( 5 == day(t)  &&  11 == month(t)  ) 
+  {
+    delay(5000); 
+    LoveYouLcd() ;
+    AnniversaryLcd() ; 
+
+
+  }   
+
+  if(currentMillis - sensorpreviousMillis > fiveMinuteInterval) 
+  {
+    // save the last time you performed event
+    sensorpreviousMillis = currentMillis;   
+    sendEverything(); 
+    SetTimeLibraryFromRTC();
+
+
+
+
+  }
+
+}
+
+void CheckTemperature() 
+{
+ // Ask the library whether the device is valid
+   switch(tempSensor.isValid())
+   {
+       case 1:
+     ;    //  Serial.println("Invalid CRC");
+    //             tempSensor.reset(); // Attempts to redetect IC
+      //     return;
+       case 2:
+      ;   //  Serial.println("Not a valid device");
+        //         tempSensor.reset(); // Attempts to redetect IC
+         //  return;
+   }
+// getTemperature returns a float. 
+temperature = tempSensor.getTemperature(); 
+  delay(100); 
+
+}
+
+void checkLight()
+{ 
+   lightValue = analogRead(0);  
+}
+
+void onIdle()
+{  
+    
+  }
+
+void ClearLcd() 
+{  
+  nss.print("v"); 
+  nss.print("xxxx");
+}
+
+void LoveYouLcd() 
+{  
+  nss.print("v"); 
+  nss.print("LOUE");
+  delay(2500); 
+  nss.print("YOUx");
+  delay(2500);    
+}
+
+void AnniversaryLcd() 
+{  
+  nss.print("v"); 
+  nss.print("NINA");
+  delay(2500); 
+  nss.print("FORx");
+  delay(1500);    
+  nss.print("EUER");
+  delay(1500);    
+}
+void tempLcd()
+{
+  char buff[4];
+  memset (buff,0,4) ;
+  CheckTemperature() ;
+    nss.print(B00100000,BYTE);
+  sprintf( buff, "%3.3f" , temperature);
+  nss.print(buff);
+  delay(5000); 
+    nss.print("w");
+}
+
+
+
+void ShowTemperature() 
+{ 
+  CheckTemperature(); 
+    nss.print("v"); 
+    nss.print("w");
+    nss.print(B00100000,BYTE);
+  //nss.print("x");   
+  nss.print(temperature,1); 
+  nss.print("C");   
+  delay(2000); 
+
+}
+
+
+void ShowDaysReading()
+{  
+  ClearLcd() ;  
+  days = ((now() - theDateWeGotTogether) / 86400); //magic nubmer 86400 is the number of seconds in a day
+  weeks = ((now() - theDateWeGotTogether) / (86400 * 7) ); //magic nubmer 86400 is the number of seconds in a day
+  nss.print("w");
+  nss.print(B00000000,BYTE);
+  nss.print("v");
+  if (days<=99999999 && days>=10000) 
+  {
+    if (weeks<=9999 && weeks>=1000) 
+    {
+      nss.print(weeks); 
+      delay(5000); 
+      nss.print("7day"); 
+      delay(1000); 
+    }
+    if (weeks<=999 && weeks>=100) 
+    {
+      nss.print("0"); 
+      nss.print(weeks); 
+      delay(5000); 
+      nss.print("7day"); 
+      delay(1000); 
+    }
+
+    if (weeks<=99 && weeks>=10) 
+    {
+      nss.print("00"); 
+      nss.print(weeks); 
+      delay(5000); 
+      nss.print("7day"); 
+      delay(1000); 
+    }
+
+    if (weeks<=9 && weeks>=0) 
+    {
+      nss.print("000"); 
+      nss.print(weeks); 
+    }
+  }
+
+  //days
+  if (days<=9999 && days>=1000) 
+  {
+    nss.print(days); 
+
+  }
+  if (days<=999 && days>=100) 
+  {
+    nss.print("0"); 
+    nss.print(days); 
+
+  }
+
+  if (days<=99 && days>=10) 
+  {
+    nss.print("00"); 
+    nss.print(days); 
+
+  }
+
+  if (days<=9 && days>=0) 
+  {
+    nss.print("000"); 
+    nss.print(days); 
+
+  }
+}
+
+void ShowTimeReading()
+{  
+  ClearLcd() ;  
+  nss.print("w");
+  nss.print(B00000000,BYTE);
+  nss.print("v");
+  if (hour()<=24 && hour()>=10) 
+  {
+    nss.print(hour()); 
+    if (minute()<=99 && minute()>=10)
+    {
+      nss.print(minute()); 
+    }
+    if (minute()<=9 && minute()>=0)
+    {
+      nss.print("0"); 
+      nss.print(minute()); 
+    }
+    //  delay(10); 
+  }
+
+
+  if (hour()<=9 && hour()>=0) 
+  {
+    nss.print("0"); 
+    nss.print(hour()); 
+    if (minute()<=99 && minute()>=10)
+    {
+      nss.print(minute()); 
+    }
+    if (minute()<=9 && minute()>=0)
+    {
+      nss.print("0"); 
+      nss.print(minute()); 
+    }
+    //  delay(10); 
+  }
+}
+
+void ClearLcd() 
+{  
+  nss.print("v"); 
+  nss.print("xxxx");
+}
+
+void LoveYouLcd() 
+{  
+  nss.print("v"); 
+  nss.print("LOUE");
+  delay(2500); 
+  nss.print("YOUx");
+  delay(2500);    
+}
+
+void AnniversaryLcd() 
+{  
+  nss.print("v"); 
+  nss.print("NINA");
+  delay(2500); 
+  nss.print("FORx");
+  delay(1500);    
+  nss.print("EUER");
+  delay(1500);    
+}
+void tempLcd()
+{
+  char buff[4];
+  memset (buff,0,4) ;
+  CheckTemperature() ;
+    nss.print(B00100000,BYTE);
+  sprintf( buff, "%3.3f" , temperature);
+  nss.print(buff);
+  delay(5000); 
+    nss.print("w");
+}
+
+
+
+void ShowTemperature() 
+{ 
+  CheckTemperature(); 
+    nss.print("v"); 
+    nss.print("w");
+    nss.print(B00100000,BYTE);
+  //nss.print("x");   
+  nss.print(temperature,1); 
+  nss.print("C");   
+  delay(2000); 
+
+}
+
+
+void ShowDaysReading()
+{  
+  ClearLcd() ;  
+  days = ((now() - theDateWeGotTogether) / 86400); //magic nubmer 86400 is the number of seconds in a day
+  weeks = ((now() - theDateWeGotTogether) / (86400 * 7) ); //magic nubmer 86400 is the number of seconds in a day
+  nss.print("w");
+  nss.print(B00000000,BYTE);
+  nss.print("v");
+  if (days<=99999999 && days>=10000) 
+  {
+    if (weeks<=9999 && weeks>=1000) 
+    {
+      nss.print(weeks); 
+      delay(5000); 
+      nss.print("7day"); 
+      delay(1000); 
+    }
+    if (weeks<=999 && weeks>=100) 
+    {
+      nss.print("0"); 
+      nss.print(weeks); 
+      delay(5000); 
+      nss.print("7day"); 
+      delay(1000); 
+    }
+
+    if (weeks<=99 && weeks>=10) 
+    {
+      nss.print("00"); 
+      nss.print(weeks); 
+      delay(5000); 
+      nss.print("7day"); 
+      delay(1000); 
+    }
+
+    if (weeks<=9 && weeks>=0) 
+    {
+      nss.print("000"); 
+      nss.print(weeks); 
+    }
+  }
+
+  //days
+  if (days<=9999 && days>=1000) 
+  {
+    nss.print(days); 
+
+  }
+  if (days<=999 && days>=100) 
+  {
+    nss.print("0"); 
+    nss.print(days); 
+
+  }
+
+  if (days<=99 && days>=10) 
+  {
+    nss.print("00"); 
+    nss.print(days); 
+
+  }
+
+  if (days<=9 && days>=0) 
+  {
+    nss.print("000"); 
+    nss.print(days); 
+
+  }
+}
+
+void ShowTimeReading()
+{  
+  ClearLcd() ;  
+  nss.print("w");
+  nss.print(B00000000,BYTE);
+  nss.print("v");
+  if (hour()<=24 && hour()>=10) 
+  {
+    nss.print(hour()); 
+    if (minute()<=99 && minute()>=10)
+    {
+      nss.print(minute()); 
+    }
+    if (minute()<=9 && minute()>=0)
+    {
+      nss.print("0"); 
+      nss.print(minute()); 
+    }
+    //  delay(10); 
+  }
+
+
+  if (hour()<=9 && hour()>=0) 
+  {
+    nss.print("0"); 
+    nss.print(hour()); 
+    if (minute()<=99 && minute()>=10)
+    {
+      nss.print(minute()); 
+    }
+    if (minute()<=9 && minute()>=0)
+    {
+      nss.print("0"); 
+      nss.print(minute()); 
+    }
+    //  delay(10); 
+  }
+}
+
+void StartRf() 
+  { 
+  digitalWrite(rfPowerPin, HIGH); 
+  digitalWrite(ledPin, HIGH);    // set the LED off
+  delay(500);   
+  digitalWrite(ledPin, LOW);    // set the LED off
+  }
+  
+void StopRf()
+  {
+  digitalWrite(rfPowerPin, LOW); 
+  digitalWrite(ledPin, HIGH);    // set the LED off
+  delay(500);   
+  digitalWrite(ledPin, LOW);    // set the LED off
+  delay(500); 
+  digitalWrite(ledPin, HIGH);    // set the LED off
+  delay(500);   
+  digitalWrite(ledPin, LOW);    // set the LED off
+  delay(100); 
+  }
+  
+  
+void SendTemperature() 
+  {
+  CheckTemperature(); 
+  delay(500); 
+  Serial.write( 0x02 );           //transmission start bit
+  Serial.print(clientId);   
+  Serial.print(tempSensorId);    
+  Serial.print(dataTypeFloat);  
+  Serial.print(temperature-3,2); 
+  Serial.print(checkData); 
+  Serial.write( 0x03 );           //transmission stop bit
+  Serial.println(); 
+  delay(250);   
+  }
+
+  void SendLight() 
+  {
+  checkLight(); 
+  Serial.write( 0x02 );           //transmission start bit
+  Serial.print(clientId);   
+  Serial.print(lightSensorId);    
+  Serial.print(dataTypeInt);  
+  Serial.print(lightValue); 
+  Serial.print(checkData); 
+  Serial.write( 0x03 );           //transmission stop bit
+  Serial.println(); 
+  delay(250); 
+  }
+
+void sendEverything() 
+{ 
+  SendLight() ; 
+  SendTemperature();  
+}
